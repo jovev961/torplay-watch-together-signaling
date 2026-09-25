@@ -1,0 +1,25 @@
+{
+  "name": "torplay-watch-together-signaling",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --env-file=local.env --watch src/local.js",
+    "start": "node --env-file=local.env src/local.js",
+    "lint": "eslint .",
+    "test": "node --test --test-concurrency=1",
+    "test:redis": "node --test --test-concurrency=1 tests/redis-store.test.js",
+    "check": "npm run lint && npm test"
+  },
+  "dependencies": {
+    "redis": "^5.8.3",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "eslint": "^10.11.0"
+  }
+}
