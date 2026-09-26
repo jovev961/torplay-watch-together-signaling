@@ -1,9 +1,8 @@
 import { createTwtsService } from "./service.js";
 
 const service = await createTwtsService();
-const address = await service.listen();
-const location = typeof address === "string" ? address : `${address.address}:${address.port}`;
+const server = service.httpServer;
 
-console.log(`TWTS listening on http://${location}`);
+server.listen(Number(process.env.PORT ?? 3000));
 
-export default service.httpServer;
+export default server;
