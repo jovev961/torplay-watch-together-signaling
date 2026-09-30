@@ -8,3 +8,5 @@ local.env
 !.env.example
 npm-debug.log*
 .DS_Store
+
+public/guest/app.js

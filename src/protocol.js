@@ -8,6 +8,7 @@ import {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const HOST_STREAM_CAPABILITY = "host-stream-v1";
+const INVITE_PATTERN = /^([A-HJ-NP-Z2-9]{6})\.([A-Za-z0-9_-]{32})$/;
 const FORBIDDEN_KEYS = new Set([
   "apikey", "credential", "credentials", "debrid", "fileid", "filename",
   "magnet", "password", "playbackurl", "provider", "providerid", "sessionid",
@@ -40,6 +41,23 @@ function scanForbidden(value, path = "message", allowRelayPayload = false) {
       scanForbidden(nested, `${path}.${key}`, allowRelayPayload);
     }
   }
+}
+
+export function normalizeDisplayTitle(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const title = String(value).trim();
+  if (!title || title.length > 160 || /[\u0000-\u001f\u007f]/.test(title)
+    || /https?:\/\//i.test(title)) fail("Display title is invalid.");
+  return title;
+}
+
+export function generateInviteId(code, random = randomBytes) {
+  return code + "." + random(24).toString("base64url");
+}
+
+export function inviteRoomCode(value) {
+  const match = INVITE_PATTERN.exec(String(value || ""));
+  return match ? match[1] : null;
 }
 
 export function normalizeName(value) {
@@ -139,7 +157,7 @@ export function parseMessage(data) {
   scanForbidden(value, "message", value.type === "relay");
   switch (value.type) {
     case "create":
-      exactKeys(value, ["protocol", "type", "name", "media"], ["mode", "capabilities"]);
+      exactKeys(value, ["protocol", "type", "name", "media"], ["mode", "capabilities", "displayTitle"]);
       return {
         protocol: PROTOCOL_VERSION,
         type: "create",
@@ -147,15 +165,17 @@ export function parseMessage(data) {
         media: normalizeMedia(value.media),
         mode: normalizeRoomMode(value.mode),
         capabilities: normalizeCapabilities(value.capabilities),
+        displayTitle: normalizeDisplayTitle(value.displayTitle),
       };
     case "join":
-      exactKeys(value, ["protocol", "type", "name", "code"], ["capabilities"]);
+      exactKeys(value, ["protocol", "type", "name", "code"], ["capabilities", "inviteId"]);
       return {
         protocol: PROTOCOL_VERSION,
         type: "join",
         name: normalizeName(value.name),
         code: normalizeRoomCode(value.code),
         capabilities: normalizeCapabilities(value.capabilities),
+        inviteId: value.inviteId === undefined ? null : String(value.inviteId),
       };
     case "resume": {
       exactKeys(value, ["protocol", "type", "code", "participantId", "reconnectToken"], ["capabilities"]);
@@ -174,8 +194,9 @@ export function parseMessage(data) {
         kind: value.kind, payload: normalizeRelay(value.kind, value.payload),
       };
     case "change-media":
-      exactKeys(value, ["protocol", "type", "media"]);
-      return { protocol: PROTOCOL_VERSION, type: "change-media", media: normalizeMedia(value.media) };
+      exactKeys(value, ["protocol", "type", "media"], ["displayTitle"]);
+      return { protocol: PROTOCOL_VERSION, type: "change-media", media: normalizeMedia(value.media),
+        displayTitle: normalizeDisplayTitle(value.displayTitle) };
     case "leave":
       exactKeys(value, ["protocol", "type"]);
       return { protocol: PROTOCOL_VERSION, type: "leave" };

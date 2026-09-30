@@ -2,13 +2,39 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/server.js": {
-      "maxDuration": 300
+      "maxDuration": 300,
+      "includeFiles": "public/guest/**"
     }
   },
   "rewrites": [
-    { "source": "/health", "destination": "/api/server/health" },
-    { "source": "/signal", "destination": "/api/server/signal" },
-    { "source": "/admin", "destination": "/api/server/admin" },
-    { "source": "/admin/:path*", "destination": "/api/server/admin/:path*" }
-  ]
+    {
+      "source": "/health",
+      "destination": "/api/server/health"
+    },
+    {
+      "source": "/signal",
+      "destination": "/api/server/signal"
+    },
+    {
+      "source": "/admin",
+      "destination": "/api/server/admin"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/api/server/admin/:path*"
+    },
+    {
+      "source": "/join/:inviteId",
+      "destination": "/api/server/join/:inviteId"
+    },
+    {
+      "source": "/api/invites/:inviteId",
+      "destination": "/api/server/api/invites/:inviteId"
+    },
+    {
+      "source": "/guest/:asset",
+      "destination": "/api/server/guest/:asset"
+    }
+  ],
+  "buildCommand": "npm run build"
 }

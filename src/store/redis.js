@@ -148,10 +148,11 @@ export class RedisRoomStore {
     });
   }
 
-  async changeMedia(code, participantId, media) {
+  async changeMedia(code, participantId, media, displayTitle = null) {
     return this.withRoom(code, async (room) => {
       if (!room || room.hostId !== participantId) return { value: null };
       room.media = clone(media);
+      room.displayTitle = displayTitle;
       return { room, value: clone(room) };
     });
   }

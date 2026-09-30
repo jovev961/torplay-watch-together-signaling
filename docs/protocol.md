@@ -9,6 +9,7 @@ The service stores room lifecycle and membership only. SDP and ICE messages are 
 {"protocol":1,"type":"create","name":"Host","media":{"mediaType":"movie","tmdbId":42}}
 {"protocol":1,"type":"create","name":"Host","media":{"mediaType":"movie","tmdbId":42},"mode":"host-stream","capabilities":["host-stream-v1"]}
 {"protocol":1,"type":"join","name":"Guest","code":"ABC234","capabilities":["host-stream-v1"]}
+{"protocol":1,"type":"join","name":"Browser","code":"ABC234","inviteId":"ABC234.<32-character-random-token>","capabilities":["host-stream-v1"]}
 {"protocol":1,"type":"resume","code":"ABC234","participantId":"uuid","reconnectToken":"opaque-token","capabilities":["host-stream-v1"]}
 {"protocol":1,"type":"relay","targetId":"uuid","kind":"offer","payload":{"type":"offer","sdp":"..."}}
 {"protocol":1,"type":"relay","targetId":"uuid","kind":"answer","payload":{"type":"answer","sdp":"..."}}
@@ -21,13 +22,22 @@ TMDB identity is low-frequency room metadata, not a playback source. The service
 
 Room mode defaults to `independent` when omitted, preserving existing clients and stored rooms. `host-stream` creation requires the `host-stream-v1` capability. Joining or resuming a host-stream room also requires that capability; older clients receive `UPGRADE_REQUIRED`. The service stores and returns the mode as room lifecycle metadata. It never receives media bytes.
 
+Hosts may supply `displayTitle` on `create` and `change-media`. The service limits
+it to 160 printable characters and excludes URLs. A host-stream room receives a
+192-bit random invite token, exposed only to the host in its `room` message.
+`GET /join/:inviteId` serves the browser guest, and `GET /api/invites/:inviteId`
+returns safe title, TMDB identity, host status, expiry, and STUN configuration.
+The browser sends the invite ID when joining. Six-character code joins remain
+supported for existing TorPlay clients. The invite ceases to resolve when the
+room expires or closes.
+
 ## Server messages
 
 - `room`: assigned room, participant identity, host designation, reconnect token, roster, and expiry.
 - `roster`: public participant IDs, names, roles, and connected state.
 - `peer-joined` / `peer-left`: host peer-negotiation notifications.
 - `signal`: transient `offer`, `answer`, or `ice` payload from another participant.
-- `media-changed`: updated TMDB identity.
+- `media-changed`: updated TMDB identity and optional safe display title.
 - `room-closed`: room closure reason.
 - `error`: stable error code and a human-readable message.
 

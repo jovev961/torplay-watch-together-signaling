@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   MAX_MESSAGE_BYTES,
@@ -14,6 +15,9 @@ import {
   HOST_STREAM_CAPABILITY,
   generateParticipant,
   generateRoomCode,
+  generateInviteId,
+  inviteRoomCode,
+  safeEqual,
   hashToken,
   parseMessage,
   publicParticipant,
@@ -64,6 +68,23 @@ function writeHtml(response, status, html) {
     "X-Frame-Options": "DENY",
   });
   response.end(html);
+}
+
+const GUEST_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Watch Together</title><link rel="stylesheet" href="/guest/style.css"></head>
+<body><main id="app" aria-live="polite"><p>Opening invite…</p></main>
+<script type="module" src="/guest/app.js"></script></body></html>`;
+
+function writeGuestHtml(response) {
+  response.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; media-src blob:; worker-src blob:; frame-ancestors 'none'; base-uri 'none'",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  });
+  response.end(GUEST_HTML);
 }
 
 async function readJson(request, maxBytes = 8_192) {
@@ -186,6 +207,8 @@ export async function createTwtsService({
       hostId: room.hostId,
       media: room.media,
       mode: room.mode || "independent",
+      displayTitle: room.displayTitle || null,
+      ...(participant.role === "host" ? { inviteId: room.inviteId || null } : {}),
       participants: publicRoster(room),
       expiresAt: room.expiresAt,
     });
@@ -215,6 +238,8 @@ export async function createTwtsService({
       const stamp = now();
       const room = {
         code,
+        inviteId: generateInviteId(code),
+        displayTitle: message.displayTitle,
         media: message.media,
         mode: message.mode,
         hostId: participant.id,
@@ -234,6 +259,13 @@ export async function createTwtsService({
     if (socketState.has(socket)) return sendError(socket, "ALREADY_JOINED", "Leave the current room first.");
     const rate = await store.rateLimit(`join:${ip}`, 20, RATE_WINDOW_MS);
     if (!rate.allowed) return sendError(socket, "RATE_LIMITED", "Too many room joins were attempted from this address.");
+    if (message.inviteId) {
+      const inviteRoom = inviteRoomCode(message.inviteId) === message.code
+        ? await store.getRoom(message.code) : null;
+      if (!inviteRoom?.inviteId || !safeEqual(inviteRoom.inviteId, message.inviteId)) {
+        return sendError(socket, "INVALID_INVITE", "This invite is invalid or has expired.");
+      }
+    }
     const generated = generateParticipant();
     const participant = {
       id: generated.id,
@@ -301,9 +333,9 @@ export async function createTwtsService({
   async function changeMedia(socket, message) {
     const state = socketState.get(socket);
     if (!state) return sendError(socket, "NOT_JOINED", "Join a room first.");
-    const room = await store.changeMedia(state.code, state.participantId, message.media);
+    const room = await store.changeMedia(state.code, state.participantId, message.media, message.displayTitle);
     if (!room) return sendError(socket, "HOST_ONLY", "Only the host can change media.");
-    await broadcastRoom(room, { type: "media-changed", media: room.media }, { exceptId: state.participantId });
+    await broadcastRoom(room, { type: "media-changed", media: room.media, displayTitle: room.displayTitle || null }, { exceptId: state.participantId });
   }
 
   async function leaveRoom(socket) {
@@ -564,14 +596,46 @@ export async function createTwtsService({
         storage: config.store,
       }, { "Access-Control-Allow-Origin": "*" });
     }
+    if (request.method === "GET" && /^\/join\/[A-HJ-NP-Z2-9]{6}\.[A-Za-z0-9_-]{32}$/.test(path)) {
+      return writeGuestHtml(response);
+    }
+    if (request.method === "GET" && path.startsWith("/guest/")) {
+      const file = path === "/guest/app.js" ? "app.js" : path === "/guest/style.css" ? "style.css" : null;
+      if (!file) return writeJson(response, 404, { error: "Not found." });
+      try {
+        const contents = await readFile(new URL(`../public/guest/${file}`, import.meta.url));
+        response.writeHead(200, { "Content-Type": file.endsWith(".js")
+          ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8",
+          "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" });
+        response.end(contents);
+      } catch { writeJson(response, 404, { error: "Guest asset unavailable." }); }
+      return;
+    }
+    if (request.method === "GET" && path.startsWith("/api/invites/")) {
+      const inviteId = path.slice("/api/invites/".length);
+      const code = inviteRoomCode(inviteId);
+      const rate = await store.rateLimit(`invite:${clientIp(request)}`, 60, RATE_WINDOW_MS);
+      if (!rate.allowed) return writeJson(response, 429, { error: "Too many invite requests." });
+      const room = code ? await store.getRoom(code) : null;
+      if (!room || room.mode !== "host-stream" || room.expiresAt <= now()
+        || !room.inviteId || !safeEqual(room.inviteId, inviteId)) {
+        return writeJson(response, 404, { error: "This room does not exist or has expired." });
+      }
+      const host = room.participants[room.hostId];
+      return writeJson(response, 200, { code: room.code, mode: room.mode,
+        media: room.media, displayTitle: room.displayTitle || null,
+        hostName: host?.name || "Host", hostConnected: Boolean(host?.connected),
+        expiresAt: room.expiresAt, stunUrls: config.stunUrls });
+    }
     if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, response, path);
     writeJson(response, 404, { error: "Not found." });
   }
 
   httpServer.on("upgrade", (request, socket, head) => {
     const origin = String(request.headers.origin || "");
+    const sameOrigin = origin === `${config.isProduction ? "https" : "http"}://${request.headers.host}`;
     const allowed = routePath(request) === "/signal"
-      && (!config.allowedOrigins.size || config.allowedOrigins.has(origin));
+      && (!config.allowedOrigins.size || config.allowedOrigins.has(origin) || sameOrigin);
     if (!allowed) {
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       socket.destroy();
