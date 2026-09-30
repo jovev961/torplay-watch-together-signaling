@@ -20,6 +20,15 @@ function parseOrigins(value) {
   return origins;
 }
 
+function parseStunUrls(value) {
+  const urls = String(value || "stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302")
+    .split(",").map((url) => url.trim()).filter(Boolean);
+  if (!urls.length || urls.some((url) => !/^stuns?:[^\s]+$/i.test(url))) {
+    throw new Error("WATCH_TOGETHER_STUN_URLS must contain STUN URLs.");
+  }
+  return [...new Set(urls)];
+}
+
 export function readConfig(env = process.env) {
   const store = env.WATCH_TOGETHER_STORE || (env.REDIS_URL ? "redis" : "memory");
   if (!new Set(["memory", "redis"]).has(store)) {
@@ -39,6 +48,7 @@ export function readConfig(env = process.env) {
     redisUrl: env.REDIS_URL || "",
     redisPrefix: env.TWTS_REDIS_PREFIX || "twts",
     allowedOrigins: parseOrigins(env.WATCH_TOGETHER_ALLOWED_ORIGINS),
+    stunUrls: parseStunUrls(env.WATCH_TOGETHER_STUN_URLS),
     adminUsername: String(env.TWTS_ADMIN_USERNAME || ""),
     adminPassword: String(env.TWTS_ADMIN_PASSWORD || ""),
     adminSessionSecret: sessionSecret,

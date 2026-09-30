@@ -62,10 +62,11 @@ export class MemoryRoomStore {
     return clone(room);
   }
 
-  async changeMedia(code, participantId, media) {
+  async changeMedia(code, participantId, media, displayTitle = null) {
     const room = this.rooms.get(code);
     if (!room || room.hostId !== participantId) return null;
     room.media = clone(media);
+    room.displayTitle = displayTitle;
     return clone(room);
   }
 

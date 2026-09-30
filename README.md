@@ -19,6 +19,7 @@ The service starts at `http://127.0.0.1:8787` by default:
 - Health: `http://127.0.0.1:8787/health`
 - Signaling: `ws://127.0.0.1:8787/signal`
 - Operations: `http://127.0.0.1:8787/admin`
+- Browser guest: `/join/<invite-id>` on the same service origin.
 
 `local.env` is ignored by Git. Use a long unique password and at least 32 random characters for the session secret. This checkout already receives generated local credentials; they are not committed.
 
@@ -35,6 +36,7 @@ npm run check
 | `WATCH_TOGETHER_STORE` | `memory` locally or `redis` for Vercel. |
 | `REDIS_URL` | Native TLS Redis URL used for shared state and pub/sub. |
 | `WATCH_TOGETHER_ALLOWED_ORIGINS` | Comma-separated exact TorPlay browser origins. Empty permits any origin. |
+| `WATCH_TOGETHER_STUN_URLS` | Optional comma-separated STUN URLs shared with browser guests; defaults to Cloudflare and Google STUN. |
 | `TWTS_ADMIN_USERNAME` | Operations-page username. |
 | `TWTS_ADMIN_PASSWORD` | Operations-page password. |
 | `TWTS_ADMIN_SESSION_SECRET` | At least 32 random characters used to sign admin sessions. |
@@ -53,6 +55,15 @@ Never prefix admin or Redis values with `NEXT_PUBLIC_`. They are server-only sec
 5. Create a Vercel Deploy Hook and store its URL as `TWTS_VERCEL_DEPLOY_HOOK_URL` if the dashboard Restart action should redeploy.
 6. Deploy, open `/health`, then sign in at `/admin` and run **Test storage**.
 7. Configure TorPlay with the deployment base URL, without `/signal`; TorPlay appends that path itself.
+
+TorPlay uses that same configured base URL for the **Copy invite** link. The default
+`*.vercel.app` domain works without a custom domain. A host-stream room receives a
+long random invite ID for `/join/<invite-id>`; the six-character code and native
+TorPlay invite remain available. The browser route loads only room title/episode
+identity and host status before **Join Watch**. Browser guests use the existing
+WebRTC DataChannels and HLS/MSE receiver. Media bytes remain peer-to-peer from
+the host. Safari without MSE support cannot play this transport, and direct
+connectivity can fail on restrictive NATs without a configured TURN relay.
 
 Vercel Hobby Functions currently end WebSocket connections after at most five minutes. TorPlay reconnects with its participant ID and reconnect token; Redis lets the new instance resume the room without persisting playback traffic.
 

@@ -243,3 +243,59 @@ test("admin mutations reject cross-origin requests", async () => {
     await instance.close();
   }
 });
+
+test("browser invite lookup and join preserve native room codes", async () => {
+  const { instance, port, base } = await service();
+  const sockets = [];
+  try {
+    const host = await open(port);
+    sockets.push(host.socket);
+    send(host.socket, { type: "create", name: "Host", media: { mediaType: "movie", tmdbId: 42 },
+      displayTitle: "Example Film", mode: "host-stream", capabilities: ["host-stream-v1"] });
+    const room = await host.inbox.next("room");
+    assert.match(room.inviteId, new RegExp(`^${room.code}\\.[A-Za-z0-9_-]{32}$`));
+    assert.equal(room.displayTitle, "Example Film");
+    const lobby = await fetch(`${base}/api/invites/${room.inviteId}`);
+    assert.equal(lobby.status, 200);
+    const summary = await lobby.json();
+    assert.equal(summary.displayTitle, "Example Film");
+    assert.equal(summary.hostConnected, true);
+    assert.deepEqual(summary.media, { mediaType: "movie", tmdbId: 42 });
+    assert.ok(Array.isArray(summary.stunUrls));
+    assert.equal("participants" in summary, false);
+    assert.equal("reconnectToken" in summary, false);
+    assert.equal((await fetch(`${base}/join/${room.inviteId}`)).status, 200);
+    const guestScript = await fetch(`${base}/guest/app.js`);
+    assert.equal(guestScript.status, 200);
+    assert.match(guestScript.headers.get("content-type"), /javascript/);
+    assert.equal((await fetch(`${base}/guest/style.css`)).status, 200);
+    assert.equal((await fetch(`${base}/api/invites/${room.code}.${"x".repeat(32)}`)).status, 404);
+
+    const invalid = await open(port);
+    sockets.push(invalid.socket);
+    send(invalid.socket, { type: "join", name: "Browser", code: room.code,
+      inviteId: `${room.code}.${"x".repeat(32)}`, capabilities: ["host-stream-v1"] });
+    assert.equal((await invalid.inbox.next("error")).code, "INVALID_INVITE");
+
+    const browser = await open(port, base);
+    sockets.push(browser.socket);
+    send(browser.socket, { type: "join", name: "Browser", code: room.code,
+      inviteId: room.inviteId, capabilities: ["host-stream-v1"] });
+    assert.equal((await browser.inbox.next("room")).role, "guest");
+    const native = await open(port);
+    sockets.push(native.socket);
+    send(native.socket, { type: "join", name: "Native", code: room.code, capabilities: ["host-stream-v1"] });
+    assert.equal((await native.inbox.next("room")).role, "guest");
+    send(host.socket, { type: "change-media", media: { mediaType: "tv", tmdbId: 99,
+      seasonNumber: 1, episodeNumber: 4 }, displayTitle: "Example Series" });
+    assert.equal((await browser.inbox.next("media-changed")).displayTitle, "Example Series");
+    const changed = await fetch(`${base}/api/invites/${room.inviteId}`).then((response) => response.json());
+    assert.equal(changed.displayTitle, "Example Series");
+    assert.equal(changed.media.episodeNumber, 4);
+    send(host.socket, { type: "leave" });
+    assert.equal((await fetch(`${base}/api/invites/${room.inviteId}`)).status, 404);
+  } finally {
+    for (const socket of sockets) socket.terminate();
+    await instance.close();
+  }
+});

@@ -9,14 +9,17 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "node --env-file=local.env --watch src/local.js",
+    "dev": "npm run build && node --env-file=local.env --watch src/local.js",
     "start": "node --env-file=local.env src/local.js",
     "lint": "eslint .",
-    "test": "node --test --test-concurrency=1",
+    "test": "npm run build && node --test --test-concurrency=1",
     "test:redis": "node --test --test-concurrency=1 tests/redis-store.test.js",
-    "check": "npm run lint && npm test"
+    "check": "npm run lint && npm test",
+    "build": "mkdir -p public/guest && esbuild browser/main.js --bundle --format=esm --target=es2022 --minify --outfile=public/guest/app.js"
   },
   "dependencies": {
+    "esbuild": "^0.28.2",
+    "hls.js": "^1.7.3",
     "redis": "^5.8.3",
     "ws": "^8.18.3"
   },
