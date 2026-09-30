@@ -11,6 +11,7 @@ import {
 } from "./config.js";
 import {
   ProtocolError,
+  HOST_STREAM_CAPABILITY,
   generateParticipant,
   generateRoomCode,
   hashToken,
@@ -184,6 +185,7 @@ export async function createTwtsService({
       role: participant.role,
       hostId: room.hostId,
       media: room.media,
+      mode: room.mode || "independent",
       participants: publicRoster(room),
       expiresAt: room.expiresAt,
     });
@@ -194,6 +196,9 @@ export async function createTwtsService({
     if (socketState.has(socket)) return sendError(socket, "ALREADY_JOINED", "Leave the current room first.");
     const rate = await store.rateLimit(`create:${ip}`, 5, RATE_WINDOW_MS);
     if (!rate.allowed) return sendError(socket, "RATE_LIMITED", "Too many rooms were created from this address.");
+    if (message.mode === "host-stream" && !message.capabilities.includes(HOST_STREAM_CAPABILITY)) {
+      return sendError(socket, "UPGRADE_REQUIRED", "This client cannot host a streamed room.");
+    }
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const code = generateRoomCode();
       const generated = generateParticipant();
@@ -211,6 +216,7 @@ export async function createTwtsService({
       const room = {
         code,
         media: message.media,
+        mode: message.mode,
         hostId: participant.id,
         createdAt: stamp,
         expiresAt: stamp + roomTtlMs,
@@ -242,6 +248,10 @@ export async function createTwtsService({
     const result = await store.joinRoom(message.code, participant, now());
     if (result.status === "not-found") return sendError(socket, "ROOM_NOT_FOUND", "That room does not exist or has closed.");
     if (result.status === "full") return sendError(socket, "ROOM_FULL", "That room is full.");
+    if (result.room.mode === "host-stream" && !message.capabilities.includes(HOST_STREAM_CAPABILITY)) {
+      await store.removeParticipant(message.code, participant.id);
+      return sendError(socket, "UPGRADE_REQUIRED", "This room requires a newer TorPlay client.");
+    }
     attach(socket, connectionId, result.room, participant);
     await roomMessage(socket, result.room, participant, generated.reconnectToken);
     await deliverEnvelope(result.room.participants[result.room.hostId], {
@@ -251,6 +261,10 @@ export async function createTwtsService({
 
   async function resumeRoom(socket, connectionId, message) {
     if (socketState.has(socket)) return sendError(socket, "ALREADY_JOINED", "Leave the current room first.");
+    const existing = await store.getRoom(message.code);
+    if (existing?.mode === "host-stream" && !message.capabilities.includes(HOST_STREAM_CAPABILITY)) {
+      return sendError(socket, "UPGRADE_REQUIRED", "This room requires a newer TorPlay client.");
+    }
     const result = await store.resumeParticipant(message.code, message.participantId, hashToken(message.reconnectToken), {
       instanceId, connectionId,
     }, now());

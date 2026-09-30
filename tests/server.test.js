@@ -89,6 +89,38 @@ test("health, room lifecycle, and WebRTC relay work end to end", async () => {
   }
 });
 
+test("host-stream rooms require capable clients and preserve mode across resume", async () => {
+  const { instance, port } = await service({ reconnectGraceMs: 1_000 });
+  const sockets = [];
+  try {
+    const host = await open(port);
+    const oldGuest = await open(port);
+    sockets.push(host.socket, oldGuest.socket);
+    send(host.socket, { type: "create", name: "Host", media: { mediaType: "movie", tmdbId: 42 },
+      mode: "host-stream", capabilities: ["host-stream-v1"] });
+    const hostRoom = await host.inbox.next("room");
+    assert.equal(hostRoom.mode, "host-stream");
+    assert.equal((await instance.store.getRoom(hostRoom.code)).mode, "host-stream");
+
+    send(oldGuest.socket, { type: "join", name: "Old client", code: hostRoom.code });
+    assert.equal((await oldGuest.inbox.next("error")).code, "UPGRADE_REQUIRED");
+
+    host.socket.terminate();
+    const resumed = await open(port);
+    sockets.push(resumed.socket);
+    send(resumed.socket, { type: "resume", code: hostRoom.code, participantId: hostRoom.participantId,
+      reconnectToken: hostRoom.reconnectToken });
+    assert.equal((await resumed.inbox.next("error")).code, "UPGRADE_REQUIRED");
+    send(resumed.socket, { type: "resume", code: hostRoom.code, participantId: hostRoom.participantId,
+      reconnectToken: hostRoom.reconnectToken, capabilities: ["host-stream-v1"] });
+    const restored = await resumed.inbox.next("room");
+    assert.equal(restored.mode, "host-stream");
+  } finally {
+    for (const socket of sockets) socket.terminate();
+    await instance.close();
+  }
+});
+
 test("origin allowlist rejects untrusted WebSocket upgrades", async () => {
   const { instance, port } = await service();
   try {

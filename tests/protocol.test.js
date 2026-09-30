@@ -35,14 +35,36 @@ test("requires protocol v1 and exact message fields", () => {
   assert.throws(() => parseMessage(JSON.stringify({ protocol: 1, type: "leave", extra: true })), /Unexpected/);
 });
 
+test("supports host-stream negotiation while keeping legacy room creation independent", () => {
+  const media = { mediaType: "movie", tmdbId: 42 };
+  const legacy = parseMessage(JSON.stringify({ protocol: 1, type: "create", name: "Host", media }));
+  assert.equal(legacy.mode, "independent");
+  assert.deepEqual(legacy.capabilities, []);
+
+  const hostStream = parseMessage(JSON.stringify({ protocol: 1, type: "create", name: "Host", media,
+    mode: "host-stream", capabilities: ["host-stream-v1"] }));
+  assert.equal(hostStream.mode, "host-stream");
+  assert.deepEqual(hostStream.capabilities, ["host-stream-v1"]);
+  assert.equal(parseMessage(JSON.stringify({ protocol: 1, type: "join", name: "Guest", code: "ABC234",
+    capabilities: ["host-stream-v1"] })).capabilities[0], "host-stream-v1");
+  assert.throws(() => parseMessage(JSON.stringify({ protocol: 1, type: "create", name: "Host", media,
+    mode: "relay" })), /Room mode/);
+  assert.throws(() => parseMessage(JSON.stringify({ protocol: 1, type: "create", name: "Host", media,
+    capabilities: "host-stream-v1" })), /capabilities/);
+});
+
 test("validates WebRTC offer, answer, and ICE payloads", () => {
   const targetId = "123e4567-e89b-42d3-a456-426614174000";
   assert.deepEqual(parseMessage(JSON.stringify({
     protocol: 1, type: "relay", targetId, kind: "offer", payload: { type: "offer", sdp: "v=0" },
   })).payload, { type: "offer", sdp: "v=0" });
   assert.deepEqual(parseMessage(JSON.stringify({
-    protocol: 1, type: "relay", targetId, kind: "ice", payload: { candidate: "candidate:1", sdpMLineIndex: 0 },
-  })).payload, { candidate: "candidate:1", sdpMLineIndex: 0 });
+    protocol: 1,
+    type: "relay",
+    targetId,
+    kind: "ice",
+    payload: { candidate: "candidate:1", sdpMid: null, sdpMLineIndex: null, usernameFragment: null },
+  })).payload, { candidate: "candidate:1", sdpMid: null, sdpMLineIndex: null, usernameFragment: null });
   assert.throws(() => parseMessage(JSON.stringify({
     protocol: 1, type: "relay", targetId, kind: "offer", payload: { type: "answer", sdp: "v=0" },
   })), /SDP/);

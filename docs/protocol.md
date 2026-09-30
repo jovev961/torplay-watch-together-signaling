@@ -7,8 +7,9 @@ The service stores room lifecycle and membership only. SDP and ICE messages are 
 
 ```json
 {"protocol":1,"type":"create","name":"Host","media":{"mediaType":"movie","tmdbId":42}}
-{"protocol":1,"type":"join","name":"Guest","code":"ABC234"}
-{"protocol":1,"type":"resume","code":"ABC234","participantId":"uuid","reconnectToken":"opaque-token"}
+{"protocol":1,"type":"create","name":"Host","media":{"mediaType":"movie","tmdbId":42},"mode":"host-stream","capabilities":["host-stream-v1"]}
+{"protocol":1,"type":"join","name":"Guest","code":"ABC234","capabilities":["host-stream-v1"]}
+{"protocol":1,"type":"resume","code":"ABC234","participantId":"uuid","reconnectToken":"opaque-token","capabilities":["host-stream-v1"]}
 {"protocol":1,"type":"relay","targetId":"uuid","kind":"offer","payload":{"type":"offer","sdp":"..."}}
 {"protocol":1,"type":"relay","targetId":"uuid","kind":"answer","payload":{"type":"answer","sdp":"..."}}
 {"protocol":1,"type":"relay","targetId":"uuid","kind":"ice","payload":{"candidate":"...","sdpMid":"0","sdpMLineIndex":0}}
@@ -17,6 +18,8 @@ The service stores room lifecycle and membership only. SDP and ICE messages are 
 ```
 
 TMDB identity is low-frequency room metadata, not a playback source. The service accepts only `movie` or `tv`, numeric TMDB IDs, and season/episode numbers for TV.
+
+Room mode defaults to `independent` when omitted, preserving existing clients and stored rooms. `host-stream` creation requires the `host-stream-v1` capability. Joining or resuming a host-stream room also requires that capability; older clients receive `UPGRADE_REQUIRED`. The service stores and returns the mode as room lifecycle metadata. It never receives media bytes.
 
 ## Server messages
 

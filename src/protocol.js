@@ -7,6 +7,7 @@ import {
 } from "./config.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const HOST_STREAM_CAPABILITY = "host-stream-v1";
 const FORBIDDEN_KEYS = new Set([
   "apikey", "credential", "credentials", "debrid", "fileid", "filename",
   "magnet", "password", "playbackurl", "provider", "providerid", "sessionid",
@@ -63,6 +64,21 @@ function integer(value, label, allowZero = false) {
   return number;
 }
 
+function normalizeRoomMode(value) {
+  if (value === undefined || value === null || value === "independent") return "independent";
+  if (value === "host-stream") return value;
+  fail("Room mode is invalid.");
+}
+
+function normalizeCapabilities(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 8
+      || value.some((capability) => typeof capability !== "string" || capability.length > 64)) {
+    fail("Client capabilities are invalid.");
+  }
+  return [...new Set(value)];
+}
+
 export function normalizeMedia(value) {
   exactKeys(value, ["mediaType", "tmdbId"], ["seasonNumber", "episodeNumber"]);
   const mediaType = value.mediaType === "show" ? "tv" : value.mediaType;
@@ -100,7 +116,7 @@ function normalizeRelay(kind, payload) {
       && (!Number.isInteger(payload.sdpMLineIndex) || payload.sdpMLineIndex < 0 || payload.sdpMLineIndex > 65_535)) {
     fail("ICE line index is invalid.", "INVALID_RELAY");
   }
-  if (payload.usernameFragment !== undefined
+  if (payload.usernameFragment !== undefined && payload.usernameFragment !== null
       && (typeof payload.usernameFragment !== "string" || payload.usernameFragment.length > 256)) {
     fail("ICE username fragment is invalid.", "INVALID_RELAY");
   }
@@ -123,18 +139,32 @@ export function parseMessage(data) {
   scanForbidden(value, "message", value.type === "relay");
   switch (value.type) {
     case "create":
-      exactKeys(value, ["protocol", "type", "name", "media"]);
-      return { protocol: PROTOCOL_VERSION, type: "create", name: normalizeName(value.name), media: normalizeMedia(value.media) };
+      exactKeys(value, ["protocol", "type", "name", "media"], ["mode", "capabilities"]);
+      return {
+        protocol: PROTOCOL_VERSION,
+        type: "create",
+        name: normalizeName(value.name),
+        media: normalizeMedia(value.media),
+        mode: normalizeRoomMode(value.mode),
+        capabilities: normalizeCapabilities(value.capabilities),
+      };
     case "join":
-      exactKeys(value, ["protocol", "type", "name", "code"]);
-      return { protocol: PROTOCOL_VERSION, type: "join", name: normalizeName(value.name), code: normalizeRoomCode(value.code) };
+      exactKeys(value, ["protocol", "type", "name", "code"], ["capabilities"]);
+      return {
+        protocol: PROTOCOL_VERSION,
+        type: "join",
+        name: normalizeName(value.name),
+        code: normalizeRoomCode(value.code),
+        capabilities: normalizeCapabilities(value.capabilities),
+      };
     case "resume": {
-      exactKeys(value, ["protocol", "type", "code", "participantId", "reconnectToken"]);
+      exactKeys(value, ["protocol", "type", "code", "participantId", "reconnectToken"], ["capabilities"]);
       const token = String(value.reconnectToken || "");
       if (token.length < 32 || token.length > 200) fail("Reconnect token is invalid.");
       return {
         protocol: PROTOCOL_VERSION, type: "resume", code: normalizeRoomCode(value.code),
         participantId: normalizeId(value.participantId, "Participant ID"), reconnectToken: token,
+        capabilities: normalizeCapabilities(value.capabilities),
       };
     }
     case "relay":
