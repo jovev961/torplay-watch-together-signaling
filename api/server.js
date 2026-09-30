@@ -1,4 +1,4 @@
-import { createTwtsService } from "../src/server.js";
+import { createTwtsService } from "../src/service.js";
 
 const service = await createTwtsService();
 

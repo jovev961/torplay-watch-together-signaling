@@ -1,6 +1,7 @@
 {
   "name": "torplay-watch-together-signaling",
   "version": "1.0.0",
+  "main": "api/server.js",
   "private": false,
   "type": "module",
   "license": "AGPL-3.0-only",

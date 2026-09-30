@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import WebSocket from "ws";
-import { createTwtsService } from "../src/server.js";
+import { createTwtsService } from "../src/service.js";
 import { MemoryRoomStore } from "../src/store/memory.js";
 
 const TEST_ENV = {
